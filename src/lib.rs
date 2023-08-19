@@ -57,19 +57,28 @@ impl Data {
     }
 }
 
-#[derive(Clone)]
+/// An object for sending cancellation notifications.
+///
+/// Cancellation can be requested through the [`CancellationTokenSource::cancel`] method.
 pub struct CancellationTokenSource(Option<Arc<RawTokenSource>>);
 
 impl CancellationTokenSource {
-    fn new_cancelled() -> Self {
+    fn new_canceled() -> Self {
         Self(None)
     }
+
+    /// Create a new CancellationTokenSource.
     pub fn new() -> Self {
         Self(Some(Arc::new(RawTokenSource::new(None))))
     }
+
+    /// Create a new CancellationTokenSource with a parent token.
+    ///
+    /// When the parent token is canceled, the child token is also canceled.
+    #[doc(alias = "CreateLinkedTokenSource")]
     pub fn with_parent(parent: &CancellationToken) -> Self {
         match &parent.0 {
-            RawToken::IsCanceled(true) => Self::new_cancelled(),
+            RawToken::IsCanceled(true) => Self::new_canceled(),
             RawToken::IsCanceled(false) => Self::new(),
             RawToken::Source(source) => {
                 if let Some(data) = &mut *source.0.lock().unwrap() {
@@ -81,17 +90,20 @@ impl CancellationTokenSource {
                         RawTokenSource::new(Some(parent))
                     })))
                 } else {
-                    Self::new_cancelled()
+                    Self::new_canceled()
                 }
             }
         }
     }
 
+    /// Send cancellation notification.
     pub fn cancel(&self) {
         if let Some(source) = &self.0 {
             source.cancel();
         }
     }
+
+    /// Get [`CancellationToken`] to receive cancellation notification from this source.
     pub fn token(&self) -> CancellationToken {
         if let Some(source) = &self.0 {
             CancellationToken(RawToken::Source(source.clone()))
@@ -99,6 +111,8 @@ impl CancellationTokenSource {
             CancellationToken(RawToken::IsCanceled(true))
         }
     }
+
+    /// Returns true if canceled.
     pub fn is_canceled(&self) -> bool {
         if let Some(source) = &self.0 {
             source.is_canceled()
@@ -107,6 +121,13 @@ impl CancellationTokenSource {
         }
     }
 }
+impl Clone for CancellationTokenSource {
+    /// Create a CancellationTokenSource that shares the destination for cancellation notifications.
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl Default for CancellationTokenSource {
     fn default() -> Self {
         Self::new()
@@ -126,26 +147,33 @@ enum RawToken {
     Source(Arc<RawTokenSource>),
 }
 
+/// An object for receiving cancellation notifications.
 #[derive(Clone)]
 pub struct CancellationToken(RawToken);
 
 impl CancellationToken {
+    /// Create a new CancellationToken with cancellation state.
     pub const fn new(is_canceled: bool) -> Self {
         Self(RawToken::IsCanceled(is_canceled))
     }
 
+    /// Return true if this token can be canceled.
     pub fn can_be_canceled(&self) -> bool {
         match &self.0 {
             RawToken::IsCanceled(is_canceled) => *is_canceled,
             RawToken::Source(_) => true,
         }
     }
+
+    /// Returns true if canceled.
     pub fn is_canceled(&self) -> bool {
         match &self.0 {
             RawToken::IsCanceled(is_canceled) => *is_canceled,
             RawToken::Source(source) => source.is_canceled(),
         }
     }
+
+    /// Returns `Err(Canceled)` if canceled, otherwise returns `Ok(())`.
     pub fn canceled(&self) -> MayBeCanceled {
         if self.is_canceled() {
             Err(Canceled)
@@ -154,13 +182,16 @@ impl CancellationToken {
         }
     }
 
-    pub async fn wait_for_canceled(&self) {
+    /// Wait until canceled.
+    pub async fn wait_for_cancellation(&self) {
         match &self.0 {
             RawToken::IsCanceled(false) => pending().await,
             RawToken::IsCanceled(true) => {}
-            RawToken::Source(source) => WaitForCanceled(WakerRegistration::new(source)).await,
+            RawToken::Source(source) => WaitForCancellation(WakerRegistration::new(source)).await,
         }
     }
+
+    /// Call the specified Future and returns its result. However, if this token is canceled, the Future call is aborted and `Err(Canceled)` is returned.
     pub async fn with<T>(&self, future: impl Future<Output = T>) -> MayBeCanceled<T> {
         match &self.0 {
             RawToken::IsCanceled(false) => Ok(future.await),
@@ -176,6 +207,7 @@ impl CancellationToken {
     }
 }
 impl Default for CancellationToken {
+    /// Create a CancellationToken that will never be canceled.
     fn default() -> Self {
         Self::new(false)
     }
@@ -197,7 +229,7 @@ impl<'a> WakerRegistration<'a> {
     pub fn new(source: &'a RawTokenSource) -> Self {
         Self { source, key: None }
     }
-    pub fn is_cancelled(&self) -> bool {
+    pub fn is_canceled(&self) -> bool {
         self.source.is_canceled()
     }
     pub fn set(&mut self, waker: &Waker) -> bool {
@@ -224,9 +256,9 @@ impl Drop for WakerRegistration<'_> {
     }
 }
 
-struct WaitForCanceled<'a>(WakerRegistration<'a>);
+struct WaitForCancellation<'a>(WakerRegistration<'a>);
 
-impl Future for WaitForCanceled<'_> {
+impl Future for WaitForCancellation<'_> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -247,7 +279,7 @@ impl<Fut: Future> Future for WithCanceled<'_, Fut> {
     type Output = Result<Fut::Output, Canceled>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.r.is_cancelled() {
+        if self.r.is_canceled() {
             return Poll::Ready(Err(Canceled));
         }
         match Pin::new(&mut self.future).poll(cx) {
@@ -263,7 +295,9 @@ impl<Fut: Future> Future for WithCanceled<'_, Fut> {
     }
 }
 
+/// Return value of the method that may be canceled.
 pub type MayBeCanceled<T = ()> = Result<T, Canceled>;
 
+/// A value indicating that it has been canceled.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Canceled;

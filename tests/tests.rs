@@ -48,7 +48,7 @@ fn wait_for_canceled() {
                 cts.cancel();
             });
             logs.push("wait");
-            ct.wait_for_canceled().await;
+            ct.wait_for_cancellation().await;
             logs.push("wake");
         })
     });
@@ -60,7 +60,7 @@ async fn wait_for_canceled_already_canceled() {
     let cts = CancellationTokenSource::new();
     let ct = cts.token();
     cts.cancel();
-    ct.wait_for_canceled().await;
+    ct.wait_for_cancellation().await;
 }
 
 #[test]

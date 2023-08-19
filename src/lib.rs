@@ -145,7 +145,7 @@ impl CancellationToken {
             RawToken::Source(source) => source.is_canceled(),
         }
     }
-    pub fn err_if_canceled(&self) -> Result<(), Canceled> {
+    pub fn canceled(&self) -> MayBeCanceled {
         if self.is_canceled() {
             Err(Canceled)
         } else {
@@ -160,7 +160,7 @@ impl CancellationToken {
             RawToken::Source(source) => WaitForCanceled(WakerRegistration::new(source)).await,
         }
     }
-    pub async fn with<T>(&self, future: impl Future<Output = T>) -> Result<T, Canceled> {
+    pub async fn with<T>(&self, future: impl Future<Output = T>) -> MayBeCanceled<T> {
         match &self.0 {
             RawToken::IsCanceled(false) => Ok(future.await),
             RawToken::IsCanceled(true) => Err(Canceled),
@@ -262,5 +262,7 @@ impl<Fut: Future> Future for WithCanceled<'_, Fut> {
     }
 }
 
-#[derive(Debug)]
+pub type MayBeCanceled<T = ()> = Result<T, Canceled>;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Canceled;

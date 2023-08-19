@@ -2,38 +2,108 @@ use std::{
     fmt,
     future::{pending, Future},
     pin::{pin, Pin},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     task::{Context, Poll, Waker},
 };
 
 use slabmap::SlabMap;
 
-#[derive(Clone)]
-struct Wakers(Arc<Mutex<Option<SlabMap<Waker>>>>);
+struct RawTokenSource(Mutex<Option<Data>>);
 
-impl Wakers {
+impl RawTokenSource {
+    fn new(parent: Option<Parent>) -> Self {
+        Self(Mutex::new(Some(Data::new(parent))))
+    }
+    fn cancel(&self) {
+        if let Some(data) = self.0.lock().unwrap().take() {
+            data.wakers.into_iter().for_each(|(_, waker)| waker.wake());
+            data.childs.into_iter().for_each(|(_, child)| {
+                if let Some(child) = child.upgrade() {
+                    child.cancel();
+                }
+            });
+        }
+    }
     fn is_canceled(&self) -> bool {
         self.0.lock().unwrap().is_none()
     }
 }
 
+struct Parent {
+    parent: Arc<RawTokenSource>,
+    key: usize,
+}
+impl Drop for Parent {
+    fn drop(&mut self) {
+        if let Some(data) = &mut *self.parent.0.lock().unwrap() {
+            data.childs.remove(self.key);
+        }
+    }
+}
+
+struct Data {
+    wakers: SlabMap<Waker>,
+    childs: SlabMap<Weak<RawTokenSource>>,
+    _parent: Option<Parent>, // Prevent the parent from being released and breaking the link with its ancestors.
+}
+impl Data {
+    fn new(parent: Option<Parent>) -> Self {
+        Self {
+            wakers: SlabMap::new(),
+            childs: SlabMap::new(),
+            _parent: parent,
+        }
+    }
+}
+
 #[derive(Clone)]
-pub struct CancellationTokenSource(Wakers);
+pub struct CancellationTokenSource(Option<Arc<RawTokenSource>>);
 
 impl CancellationTokenSource {
-    pub fn new() -> Self {
-        Self(Wakers(Arc::new(Mutex::new(Some(SlabMap::new())))))
+    fn new_cancelled() -> Self {
+        Self(None)
     }
+    pub fn new() -> Self {
+        Self(Some(Arc::new(RawTokenSource::new(None))))
+    }
+    pub fn with_parent(parent: &CancellationToken) -> Self {
+        match &parent.0 {
+            RawToken::IsCanceled(true) => Self::new_cancelled(),
+            RawToken::IsCanceled(false) => Self::new(),
+            RawToken::Source(source) => {
+                if let Some(data) = &mut *source.0.lock().unwrap() {
+                    Self(Some(Arc::new_cyclic(|child| {
+                        let parent = Parent {
+                            parent: source.clone(),
+                            key: data.childs.insert(child.clone()),
+                        };
+                        RawTokenSource::new(Some(parent))
+                    })))
+                } else {
+                    Self::new_cancelled()
+                }
+            }
+        }
+    }
+
     pub fn cancel(&self) {
-        if let Some(wakers) = self.0 .0.lock().unwrap().take() {
-            wakers.into_iter().for_each(|(_, waker)| waker.wake());
+        if let Some(source) = &self.0 {
+            source.cancel();
         }
     }
     pub fn token(&self) -> CancellationToken {
-        CancellationToken(RawToken::Wakers(self.0.clone()))
+        if let Some(source) = &self.0 {
+            CancellationToken(RawToken::Source(source.clone()))
+        } else {
+            CancellationToken(RawToken::IsCanceled(true))
+        }
     }
     pub fn is_canceled(&self) -> bool {
-        self.0.is_canceled()
+        if let Some(source) = &self.0 {
+            source.is_canceled()
+        } else {
+            true
+        }
     }
 }
 impl Default for CancellationTokenSource {
@@ -52,7 +122,7 @@ impl fmt::Debug for CancellationTokenSource {
 #[derive(Clone)]
 enum RawToken {
     IsCanceled(bool),
-    Wakers(Wakers),
+    Source(Arc<RawTokenSource>),
 }
 
 #[derive(Clone)]
@@ -66,13 +136,13 @@ impl CancellationToken {
     pub fn can_be_canceled(&self) -> bool {
         match &self.0 {
             RawToken::IsCanceled(is_canceled) => *is_canceled,
-            RawToken::Wakers(_) => true,
+            RawToken::Source(_) => true,
         }
     }
     pub fn is_canceled(&self) -> bool {
         match &self.0 {
             RawToken::IsCanceled(is_canceled) => *is_canceled,
-            RawToken::Wakers(wakers) => wakers.is_canceled(),
+            RawToken::Source(source) => source.is_canceled(),
         }
     }
     pub fn err_if_canceled(&self) -> Result<(), Canceled> {
@@ -87,16 +157,16 @@ impl CancellationToken {
         match &self.0 {
             RawToken::IsCanceled(false) => pending().await,
             RawToken::IsCanceled(true) => {}
-            RawToken::Wakers(wakers) => WaitForCanceled(WakerRegistration::new(wakers)).await,
+            RawToken::Source(source) => WaitForCanceled(WakerRegistration::new(source)).await,
         }
     }
     pub async fn with<T>(&self, future: impl Future<Output = T>) -> Result<T, Canceled> {
         match &self.0 {
             RawToken::IsCanceled(false) => Ok(future.await),
             RawToken::IsCanceled(true) => Err(Canceled),
-            RawToken::Wakers(wakers) => {
+            RawToken::Source(source) => {
                 WithCanceled {
-                    r: WakerRegistration::new(wakers),
+                    r: WakerRegistration::new(source),
                     future: pin!(future),
                 }
                 .await
@@ -119,22 +189,22 @@ impl fmt::Debug for CancellationToken {
 }
 
 struct WakerRegistration<'a> {
-    wakers: &'a Wakers,
+    source: &'a RawTokenSource,
     key: Option<usize>,
 }
 impl<'a> WakerRegistration<'a> {
-    pub fn new(wakers: &'a Wakers) -> Self {
-        Self { wakers, key: None }
+    pub fn new(source: &'a RawTokenSource) -> Self {
+        Self { source, key: None }
     }
     pub fn is_cancelled(&self) -> bool {
-        self.wakers.is_canceled()
+        self.source.is_canceled()
     }
     pub fn set(&mut self, waker: &Waker) -> bool {
-        if let Some(wakers) = &mut *self.wakers.0.lock().unwrap() {
+        if let Some(data) = &mut *self.source.0.lock().unwrap() {
             if let Some(key) = self.key {
-                wakers[key] = waker.clone();
+                data.wakers[key] = waker.clone();
             } else {
-                self.key = Some(wakers.insert(waker.clone()));
+                self.key = Some(data.wakers.insert(waker.clone()));
             }
             true
         } else {
@@ -146,8 +216,8 @@ impl<'a> WakerRegistration<'a> {
 impl Drop for WakerRegistration<'_> {
     fn drop(&mut self) {
         if let Some(key) = self.key.take() {
-            if let Some(wakers) = &mut *self.wakers.0.lock().unwrap() {
-                wakers.remove(key);
+            if let Some(data) = &mut *self.source.0.lock().unwrap() {
+                data.wakers.remove(key);
             }
         }
     }

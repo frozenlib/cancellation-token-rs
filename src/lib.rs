@@ -30,6 +30,9 @@ impl CancellationTokenSource {
     pub fn token(&self) -> CancellationToken {
         CancellationToken(RawToken::Wakers(self.0.clone()))
     }
+    pub fn is_canceled(&self) -> bool {
+        self.0.is_canceled()
+    }
 }
 impl Default for CancellationTokenSource {
     fn default() -> Self {
@@ -39,7 +42,7 @@ impl Default for CancellationTokenSource {
 impl fmt::Debug for CancellationTokenSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CancellationTokenSource")
-            .field("is_canceled", &self.0.is_canceled())
+            .field("is_canceled", &self.is_canceled())
             .finish()
     }
 }

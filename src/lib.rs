@@ -15,14 +15,15 @@ impl RawTokenSource {
         Self(Mutex::new(Some(Data::new(parent))))
     }
     fn cancel(&self) {
-        if let Some(data) = self.0.lock().unwrap().take() {
-            data.wakers.into_iter().for_each(|(_, waker)| waker.wake());
-            data.childs.into_iter().for_each(|(_, child)| {
-                if let Some(child) = child.upgrade() {
-                    child.cancel();
-                }
-            });
-        }
+        let Some(data) = self.0.lock().unwrap().take() else {
+            return;
+        };
+        data.wakers.into_iter().for_each(|(_, waker)| waker.wake());
+        data.childs.into_iter().for_each(|(_, child)| {
+            if let Some(child) = child.upgrade() {
+                child.cancel();
+            }
+        });
     }
     fn is_canceled(&self) -> bool {
         self.0.lock().unwrap().is_none()

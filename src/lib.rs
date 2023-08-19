@@ -8,7 +8,8 @@ use std::{
 
 use slabmap::SlabMap;
 
-struct Wakers(Mutex<Option<SlabMap<Waker>>>);
+#[derive(Clone)]
+struct Wakers(Arc<Mutex<Option<SlabMap<Waker>>>>);
 
 impl Wakers {
     fn is_canceled(&self) -> bool {
@@ -17,11 +18,11 @@ impl Wakers {
 }
 
 #[derive(Clone)]
-pub struct CancellationTokenSource(Arc<Wakers>);
+pub struct CancellationTokenSource(Wakers);
 
 impl CancellationTokenSource {
     pub fn new() -> Self {
-        Self(Arc::new(Wakers(Mutex::new(Some(SlabMap::new())))))
+        Self(Wakers(Arc::new(Mutex::new(Some(SlabMap::new())))))
     }
     pub fn cancel(&self) {
         if let Some(wakers) = self.0 .0.lock().unwrap().take() {
@@ -51,7 +52,7 @@ impl fmt::Debug for CancellationTokenSource {
 #[derive(Clone)]
 enum RawToken {
     IsCanceled(bool),
-    Wakers(Arc<Wakers>),
+    Wakers(Wakers),
 }
 
 #[derive(Clone)]
@@ -63,7 +64,10 @@ impl CancellationToken {
     }
 
     pub fn can_be_canceled(&self) -> bool {
-        !matches!(&self.0, RawToken::IsCanceled(false))
+        match &self.0 {
+            RawToken::IsCanceled(is_canceled) => *is_canceled,
+            RawToken::Wakers(_) => true,
+        }
     }
     pub fn is_canceled(&self) -> bool {
         match &self.0 {
@@ -115,11 +119,11 @@ impl fmt::Debug for CancellationToken {
 }
 
 struct WakerRegistration<'a> {
-    wakers: &'a Arc<Wakers>,
+    wakers: &'a Wakers,
     key: Option<usize>,
 }
 impl<'a> WakerRegistration<'a> {
-    pub fn new(wakers: &'a Arc<Wakers>) -> Self {
+    pub fn new(wakers: &'a Wakers) -> Self {
         Self { wakers, key: None }
     }
     pub fn is_cancelled(&self) -> bool {

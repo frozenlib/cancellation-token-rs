@@ -8,6 +8,12 @@ use std::{
 
 use slabmap::SlabMap;
 
+#[cfg(doctest)]
+pub mod tests {
+    #[doc = include_str!("../README.md")]
+    pub mod readme {}
+}
+
 struct RawTokenSource(Mutex<Option<Data>>);
 
 impl RawTokenSource {
@@ -174,6 +180,21 @@ impl CancellationToken {
     }
 
     /// Returns `Err(Canceled)` if canceled, otherwise returns `Ok(())`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cancellation_token::{CancellationToken, MayBeCanceled};
+    ///
+    /// fn cancellable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
+    ///     for _ in 0..100 {
+    ///         ct.canceled()?; // Return from this function if canceled
+    ///         heavy_work();
+    ///     }
+    ///     Ok(100)
+    /// }
+    /// fn heavy_work() { }
+    /// ```
     pub fn canceled(&self) -> MayBeCanceled {
         if self.is_canceled() {
             Err(Canceled)
@@ -192,6 +213,20 @@ impl CancellationToken {
     }
 
     /// Call the specified Future and returns its result. However, if this token is canceled, the Future call is aborted and `Err(Canceled)` is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cancellation_token::{CancellationToken, MayBeCanceled};
+    ///
+    /// async fn cancellable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
+    ///     for _ in 0..100 {
+    ///         ct.with(heavy_work()).await?;
+    ///     }
+    ///     Ok(100)
+    /// }
+    /// async fn heavy_work() { }
+    /// ```
     pub async fn with<T>(&self, future: impl Future<Output = T>) -> MayBeCanceled<T> {
         match &self.0 {
             RawToken::IsCanceled(false) => Ok(future.await),

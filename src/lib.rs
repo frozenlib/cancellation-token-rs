@@ -24,7 +24,7 @@ impl CancellationTokenSource {
     }
     pub fn cancel(&self) {
         if let Some(wakers) = self.0 .0.lock().unwrap().take() {
-            wakers.into_iter().for_each(|waker| waker.wake());
+            wakers.into_iter().for_each(|(_, waker)| waker.wake());
         }
     }
     pub fn token(&self) -> CancellationToken {

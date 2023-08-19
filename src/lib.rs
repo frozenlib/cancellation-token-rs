@@ -16,6 +16,7 @@ impl Wakers {
     }
 }
 
+#[derive(Clone)]
 pub struct CancellationTokenSource(Arc<Wakers>);
 
 impl CancellationTokenSource {
@@ -47,11 +48,13 @@ impl fmt::Debug for CancellationTokenSource {
     }
 }
 
+#[derive(Clone)]
 enum RawToken {
     IsCanceled(bool),
     Wakers(Arc<Wakers>),
 }
 
+#[derive(Clone)]
 pub struct CancellationToken(RawToken);
 
 impl CancellationToken {

@@ -34,7 +34,7 @@ impl OnCanceled for RawTokenSource {
 }
 
 struct Data {
-    cbs: SlabMap<CancellationTokenCallback>,
+    cbs: SlabMap<CancelCallback>,
     _parent: CancellationTokenRegistration, // Prevent the parent from being released and breaking the link with its ancestors.
 }
 impl Data {
@@ -76,9 +76,7 @@ impl CancellationTokenSource {
                     Self(Some(Arc::new_cyclic(|child: &Weak<RawTokenSource>| {
                         RawTokenSource::new(CancellationTokenRegistration(Some(RawRegistration {
                             source: source.clone(),
-                            key: data
-                                .cbs
-                                .insert(CancellationTokenCallback::Weak(child.clone())),
+                            key: data.cbs.insert(CancelCallback::Weak(child.clone())),
                         })))
                     })))
                 } else {
@@ -204,7 +202,7 @@ impl CancellationToken {
     /// If this token has already been canceled, the callback is called before the function returns.
     ///
     /// Callbacks are called synchronously when [`CancellationTokenSource::cancel()`] is called, so care must be taken to avoid deadlocks.
-    pub fn register(&self, cb: CancellationTokenCallback) -> CancellationTokenRegistration {
+    pub fn register(&self, cb: CancelCallback) -> CancellationTokenRegistration {
         // Compared to other methods, this method is more prone to deadlocks, so it has been intentionally designed to be verbose.
         let is_canceled = match &self.0 {
             RawToken::IsCanceled(is_canceled) => *is_canceled,
@@ -288,14 +286,14 @@ pub trait OnCanceled: Sync + Send {
 
 /// Callback called when canceled.
 #[non_exhaustive]
-pub enum CancellationTokenCallback {
+pub enum CancelCallback {
     FnOnce(Box<dyn FnOnce() + Sync + Send>),
     Waker(Waker),
     Box(Box<dyn OnCanceled>),
     Arc(Arc<dyn OnCanceled>),
     Weak(Weak<dyn OnCanceled>),
 }
-impl CancellationTokenCallback {
+impl CancelCallback {
     fn on_canceled(self) {
         match self {
             Self::FnOnce(f) => f(),
@@ -362,7 +360,7 @@ impl<'a> WakerRegistration<'a> {
     }
     pub fn set(&mut self, waker: &Waker) -> bool {
         if let Some(data) = &mut *self.source.0.lock().unwrap() {
-            let cb = CancellationTokenCallback::Waker(waker.clone());
+            let cb = CancelCallback::Waker(waker.clone());
             if let Some(key) = self.key {
                 data.cbs[key] = cb;
             } else {

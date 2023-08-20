@@ -5,9 +5,7 @@ use std::{
     time::Duration,
 };
 
-use cancellation_token::{
-    Canceled, CancellationToken, CancellationTokenCallback, CancellationTokenSource,
-};
+use cancellation_token::{CancelCallback, Canceled, CancellationToken, CancellationTokenSource};
 use rt_local::{
     runtime::core::{run, test},
     wait_for_idle,
@@ -202,7 +200,7 @@ fn register() {
     let ct = cts.token();
     let _r = ct.register({
         let logs = logs.clone();
-        CancellationTokenCallback::FnOnce(Box::new(move || {
+        CancelCallback::FnOnce(Box::new(move || {
             logs.push("cancel");
         }))
     });
@@ -217,7 +215,7 @@ fn register_unregister() {
     let ct = cts.token();
     let _ = ct.register({
         let logs = logs.clone();
-        CancellationTokenCallback::FnOnce(Box::new(move || {
+        CancelCallback::FnOnce(Box::new(move || {
             logs.push("cancel");
         }))
     });
@@ -232,7 +230,7 @@ fn register_detach() {
     let ct = cts.token();
     ct.register({
         let logs = logs.clone();
-        CancellationTokenCallback::FnOnce(Box::new(move || {
+        CancelCallback::FnOnce(Box::new(move || {
             logs.push("cancel");
         }))
     })

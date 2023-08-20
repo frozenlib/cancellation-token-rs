@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/cancellation-token/badge.svg)](https://docs.rs/cancellation-token/)
 [![Actions Status](https://github.com/frozenlib/cancellation-token-rs/workflows/CI/badge.svg)](https://github.com/frozenlib/cancellation-token-rs/actions)
 
-This crate provides something like `CancellationToken` in C#.
+A Rust implementation of C#'s CancellationToken API.
 
 ## Example
 

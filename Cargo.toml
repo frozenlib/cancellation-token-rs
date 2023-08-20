@@ -9,7 +9,7 @@ repository = "https://github.com/frozenlib/cancellation-token-rt"
 documentation = "https://docs.rs/cancellation-token-rt/"
 keywords = ["cancel", "graceful", "shutdown", "signal"]
 categories = ["asynchronous"]
-description = "Something like CancellationToken in C#."
+description = "A Rust implementation of C#'s CancellationToken API."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

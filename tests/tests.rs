@@ -27,6 +27,26 @@ fn cancel_and_is_canceled() {
 }
 
 #[test]
+fn cancel_defer() {
+    let cts = CancellationTokenSource::new();
+
+    let d = cts.cancel_defer();
+    assert!(!cts.is_canceled());
+    drop(d);
+    assert!(cts.is_canceled());
+}
+
+#[test]
+fn cancel_defer_detach() {
+    let cts = CancellationTokenSource::new();
+
+    let d = cts.cancel_defer();
+    assert!(!cts.is_canceled());
+    d.detach();
+    assert!(!cts.is_canceled());
+}
+
+#[test]
 fn token_new() {
     let ct = CancellationToken::new(false);
     assert!(!ct.can_be_canceled());

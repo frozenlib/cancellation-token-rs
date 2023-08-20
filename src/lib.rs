@@ -95,6 +95,11 @@ impl CancellationTokenSource {
         }
     }
 
+    /// Create an object for which a cancellation notification is sent when dropped.
+    pub fn cancel_defer(&self) -> CancelOnDrop {
+        CancelOnDrop(Some(self.clone()))
+    }
+
     /// Get [`CancellationToken`] to receive cancellation notification from this source.
     pub fn token(&self) -> CancellationToken {
         if let Some(source) = &self.0 {
@@ -424,3 +429,21 @@ pub type MayBeCanceled<T = ()> = Result<T, Canceled>;
 /// A value indicating that it has been canceled.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Canceled;
+
+/// An object for which a cancellation notification is sent when dropped.
+pub struct CancelOnDrop(Option<CancellationTokenSource>);
+
+impl CancelOnDrop {
+    /// Drop the object without sending a cancellation notification.
+    pub fn detach(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(source) = self.0.take() {
+            source.cancel();
+        }
+    }
+}

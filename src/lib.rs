@@ -24,7 +24,7 @@ impl RawTokenSource {
         self.0.lock().unwrap().is_none()
     }
 }
-impl RawCancellationTokenCallback for RawTokenSource {
+impl OnCanceled for RawTokenSource {
     fn on_canceled(&self) {
         let Some(data) = self.0.lock().unwrap().take() else {
             return;
@@ -279,7 +279,7 @@ impl fmt::Debug for CancellationToken {
 }
 
 /// Callback called when canceled.
-pub trait RawCancellationTokenCallback: Sync + Send {
+pub trait OnCanceled: Sync + Send {
     /// Called when cancelled.
     ///
     /// This method are called synchronously when [`CancellationTokenSource::cancel()`] is called, so care must be taken to avoid deadlocks.
@@ -290,9 +290,9 @@ pub trait RawCancellationTokenCallback: Sync + Send {
 pub enum CancellationTokenCallback {
     FnOnce(Box<dyn FnOnce() + Sync + Send>),
     Waker(Waker),
-    Box(Box<dyn RawCancellationTokenCallback>),
-    Arc(Arc<dyn RawCancellationTokenCallback>),
-    Weak(Weak<dyn RawCancellationTokenCallback>),
+    Box(Box<dyn OnCanceled>),
+    Arc(Arc<dyn OnCanceled>),
+    Weak(Weak<dyn OnCanceled>),
 }
 impl CancellationTokenCallback {
     fn on_canceled(self) {

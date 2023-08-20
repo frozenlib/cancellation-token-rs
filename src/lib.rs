@@ -186,7 +186,7 @@ impl CancellationToken {
     /// ```
     /// use cancellation_token::{CancellationToken, MayBeCanceled};
     ///
-    /// fn cancellable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
+    /// fn cancelable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
     ///     for _ in 0..100 {
     ///         ct.canceled()?; // Return from this function if canceled
     ///         heavy_work();
@@ -220,7 +220,7 @@ impl CancellationToken {
     /// ```
     /// use cancellation_token::{CancellationToken, MayBeCanceled};
     ///
-    /// async fn cancellable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
+    /// async fn cancelable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
     ///     for _ in 0..100 {
     ///         ct.run(heavy_work()).await?;
     ///     }

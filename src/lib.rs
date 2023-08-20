@@ -17,47 +17,30 @@ pub mod tests {
 struct RawTokenSource(Mutex<Option<Data>>);
 
 impl RawTokenSource {
-    fn new(parent: Option<Parent>) -> Self {
+    fn new(parent: CancellationTokenRegistration) -> Self {
         Self(Mutex::new(Some(Data::new(parent))))
-    }
-    fn cancel(&self) {
-        let Some(data) = self.0.lock().unwrap().take() else {
-            return;
-        };
-        data.wakers.into_iter().for_each(|(_, waker)| waker.wake());
-        data.childs.into_iter().for_each(|(_, child)| {
-            if let Some(child) = child.upgrade() {
-                child.cancel();
-            }
-        });
     }
     fn is_canceled(&self) -> bool {
         self.0.lock().unwrap().is_none()
     }
 }
-
-struct Parent {
-    parent: Arc<RawTokenSource>,
-    key: usize,
-}
-impl Drop for Parent {
-    fn drop(&mut self) {
-        if let Some(data) = &mut *self.parent.0.lock().unwrap() {
-            data.childs.remove(self.key);
-        }
+impl RawCancellationTokenCallback for RawTokenSource {
+    fn on_canceled(&self) {
+        let Some(data) = self.0.lock().unwrap().take() else {
+            return;
+        };
+        data.cbs.into_iter().for_each(|(_, cb)| cb.on_canceled());
     }
 }
 
 struct Data {
-    wakers: SlabMap<Waker>,
-    childs: SlabMap<Weak<RawTokenSource>>,
-    _parent: Option<Parent>, // Prevent the parent from being released and breaking the link with its ancestors.
+    cbs: SlabMap<CancellationTokenCallback>,
+    _parent: CancellationTokenRegistration, // Prevent the parent from being released and breaking the link with its ancestors.
 }
 impl Data {
-    fn new(parent: Option<Parent>) -> Self {
+    fn new(parent: CancellationTokenRegistration) -> Self {
         Self {
-            wakers: SlabMap::new(),
-            childs: SlabMap::new(),
+            cbs: SlabMap::new(),
             _parent: parent,
         }
     }
@@ -75,7 +58,9 @@ impl CancellationTokenSource {
 
     /// Create a new CancellationTokenSource.
     pub fn new() -> Self {
-        Self(Some(Arc::new(RawTokenSource::new(None))))
+        Self(Some(Arc::new(RawTokenSource::new(
+            CancellationTokenRegistration(None),
+        ))))
     }
 
     /// Create a new CancellationTokenSource with a parent token.
@@ -88,12 +73,13 @@ impl CancellationTokenSource {
             RawToken::IsCanceled(false) => Self::new(),
             RawToken::Source(source) => {
                 if let Some(data) = &mut *source.0.lock().unwrap() {
-                    Self(Some(Arc::new_cyclic(|child| {
-                        let parent = Parent {
-                            parent: source.clone(),
-                            key: data.childs.insert(child.clone()),
-                        };
-                        RawTokenSource::new(Some(parent))
+                    Self(Some(Arc::new_cyclic(|child: &Weak<RawTokenSource>| {
+                        RawTokenSource::new(CancellationTokenRegistration(Some(RawRegistration {
+                            source: source.clone(),
+                            key: data
+                                .cbs
+                                .insert(CancellationTokenCallback::Weak(child.clone())),
+                        })))
                     })))
                 } else {
                     Self::new_canceled()
@@ -105,7 +91,7 @@ impl CancellationTokenSource {
     /// Send cancellation notification.
     pub fn cancel(&self) {
         if let Some(source) = &self.0 {
-            source.cancel();
+            source.on_canceled();
         }
     }
 
@@ -204,6 +190,32 @@ impl CancellationToken {
         }
     }
 
+    /// Register a callback to be called when this token is canceled.
+    ///
+    /// If this token has already been canceled, the callback is called before the function returns.
+    ///
+    /// Callbacks are called synchronously when [`CancellationTokenSource::cancel()`] is called, so care must be taken to avoid deadlocks.
+    pub fn register(&self, cb: CancellationTokenCallback) -> CancellationTokenRegistration {
+        // Compared to other methods, this method is more prone to deadlocks, so it has been intentionally designed to be verbose.
+        let is_canceled = match &self.0 {
+            RawToken::IsCanceled(is_canceled) => *is_canceled,
+            RawToken::Source(source) => {
+                if let Some(data) = &mut *source.0.lock().unwrap() {
+                    return CancellationTokenRegistration(Some(RawRegistration {
+                        source: source.clone(),
+                        key: data.cbs.insert(cb),
+                    }));
+                } else {
+                    true
+                }
+            }
+        };
+        if is_canceled {
+            cb.on_canceled();
+        }
+        CancellationTokenRegistration::empty()
+    }
+
     /// Wait until canceled.
     pub async fn wait(&self) {
         match &self.0 {
@@ -257,6 +269,69 @@ impl fmt::Debug for CancellationToken {
     }
 }
 
+/// Callback called when canceled.
+pub trait RawCancellationTokenCallback: Sync + Send {
+    /// Called when cancelled.
+    ///
+    /// This method are called synchronously when [`CancellationTokenSource::cancel()`] is called, so care must be taken to avoid deadlocks.
+    fn on_canceled(&self);
+}
+
+/// Callback called when canceled.
+pub enum CancellationTokenCallback {
+    FnOnce(Box<dyn FnOnce() + Sync + Send>),
+    Waker(Waker),
+    Box(Box<dyn RawCancellationTokenCallback>),
+    Arc(Arc<dyn RawCancellationTokenCallback>),
+    Weak(Weak<dyn RawCancellationTokenCallback>),
+}
+impl CancellationTokenCallback {
+    fn on_canceled(self) {
+        match self {
+            Self::FnOnce(f) => f(),
+            Self::Waker(w) => w.wake(),
+            Self::Box(b) => b.on_canceled(),
+            Self::Arc(a) => a.on_canceled(),
+            Self::Weak(w) => {
+                if let Some(w) = w.upgrade() {
+                    w.on_canceled();
+                }
+            }
+        }
+    }
+}
+
+/// Object to unregister callbacks.
+///
+/// Callbacks are automatically unregistered when dropped.
+#[derive(Default)]
+pub struct CancellationTokenRegistration(Option<RawRegistration>);
+
+impl CancellationTokenRegistration {
+    fn empty() -> Self {
+        Self(None)
+    }
+}
+impl fmt::Debug for CancellationTokenRegistration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CancellationTokenRegistration")
+            .field("is_empty", &self.0.is_none())
+            .finish()
+    }
+}
+
+struct RawRegistration {
+    source: Arc<RawTokenSource>,
+    key: usize,
+}
+impl Drop for RawRegistration {
+    fn drop(&mut self) {
+        if let Some(data) = &mut *self.source.0.lock().unwrap() {
+            data.cbs.remove(self.key);
+        }
+    }
+}
+
 struct WakerRegistration<'a> {
     source: &'a RawTokenSource,
     key: Option<usize>,
@@ -270,10 +345,11 @@ impl<'a> WakerRegistration<'a> {
     }
     pub fn set(&mut self, waker: &Waker) -> bool {
         if let Some(data) = &mut *self.source.0.lock().unwrap() {
+            let cb = CancellationTokenCallback::Waker(waker.clone());
             if let Some(key) = self.key {
-                data.wakers[key] = waker.clone();
+                data.cbs[key] = cb;
             } else {
-                self.key = Some(data.wakers.insert(waker.clone()));
+                self.key = Some(data.cbs.insert(cb));
             }
             true
         } else {
@@ -286,7 +362,7 @@ impl Drop for WakerRegistration<'_> {
     fn drop(&mut self) {
         if let Some(key) = self.key.take() {
             if let Some(data) = &mut *self.source.0.lock().unwrap() {
-                data.wakers.remove(key);
+                data.cbs.remove(key);
             }
         }
     }

@@ -48,7 +48,7 @@ impl Data {
 
 /// An object for sending cancellation notifications.
 ///
-/// Use [`cancel`](CancellationTokenSource::cancel) to notify cancellation.
+/// Use [`cancel()`](CancellationTokenSource::cancel) to notify cancellation.
 pub struct CancellationTokenSource(Option<Arc<RawTokenSource>>);
 
 impl CancellationTokenSource {
@@ -144,9 +144,11 @@ enum RawToken {
 
 /// An object for receiving cancellation notifications.
 ///
-/// - Use [`is_canceled`](CancellationToken::is_canceled) to see if the cancellation has been notified.
-/// - Use [`canceled`](CancellationToken::canceled) to implement cancellation using the `?` operator.
-/// - Use [`run`](CancellationToken::run) to apply cancellation to async functions.
+/// Obtained by [`CancellationTokenSource::token()`] or [`new()`](CancellationToken::new).
+///
+/// - Use [`is_canceled()`](CancellationToken::is_canceled) to see if the cancellation has been notified.
+/// - Use [`canceled()`](CancellationToken::canceled) to implement cancellation using the `?` operator.
+/// - Use [`run()`](CancellationToken::run) to apply cancellation to async functions.
 #[derive(Clone)]
 pub struct CancellationToken(RawToken);
 
@@ -285,6 +287,8 @@ pub trait OnCanceled: Sync + Send {
 }
 
 /// Callback called when canceled.
+///
+/// Used in [`CancellationToken::register()`].
 #[non_exhaustive]
 pub enum CancelCallback {
     FnOnce(Box<dyn FnOnce() + Sync + Send>),
@@ -430,6 +434,8 @@ pub type MayBeCanceled<T = ()> = Result<T, Canceled>;
 pub struct Canceled;
 
 /// An object for which a cancellation notification is sent when dropped.
+///
+/// Returned by [`CancellationTokenSource::cancel_defer()`].
 pub struct CancelOnDrop(Option<CancellationTokenSource>);
 
 impl CancelOnDrop {

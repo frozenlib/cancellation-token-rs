@@ -213,7 +213,7 @@ impl CancellationToken {
         }
     }
 
-    /// Run the specified Future and returns its result. However, if this token is canceled, the Future call is aborted and `Err(Canceled)` is returned.
+    /// Runs the specified future. However, if this token is canceled, it will stop the running of that future and return `Err(Cancelled)`.
     ///
     /// # Example
     ///

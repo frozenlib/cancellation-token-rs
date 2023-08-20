@@ -205,7 +205,7 @@ impl CancellationToken {
     }
 
     /// Wait until canceled.
-    pub async fn wait_for_cancellation(&self) {
+    pub async fn wait(&self) {
         match &self.0 {
             RawToken::IsCanceled(false) => pending().await,
             RawToken::IsCanceled(true) => {}
@@ -213,7 +213,7 @@ impl CancellationToken {
         }
     }
 
-    /// Call the specified Future and returns its result. However, if this token is canceled, the Future call is aborted and `Err(Canceled)` is returned.
+    /// Run the specified Future and returns its result. However, if this token is canceled, the Future call is aborted and `Err(Canceled)` is returned.
     ///
     /// # Example
     ///
@@ -222,13 +222,13 @@ impl CancellationToken {
     ///
     /// async fn cancellable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
     ///     for _ in 0..100 {
-    ///         ct.with(heavy_work()).await?;
+    ///         ct.run(heavy_work()).await?;
     ///     }
     ///     Ok(100)
     /// }
     /// async fn heavy_work() { }
     /// ```
-    pub async fn with<T>(&self, future: impl Future<Output = T>) -> MayBeCanceled<T> {
+    pub async fn run<T>(&self, future: impl Future<Output = T>) -> MayBeCanceled<T> {
         match &self.0 {
             RawToken::IsCanceled(false) => Ok(future.await),
             RawToken::IsCanceled(true) => Err(Canceled),

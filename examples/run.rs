@@ -11,7 +11,7 @@ async fn main() {
 
 async fn cancellable_function(ct: &CancellationToken) -> MayBeCanceled<u32> {
     for _ in 0..100 {
-        ct.with(heavy_work()).await?;
+        ct.run(heavy_work()).await?;
     }
     Ok(100)
 }

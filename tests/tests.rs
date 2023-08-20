@@ -48,7 +48,7 @@ fn wait_for_canceled() {
                 cts.cancel();
             });
             logs.push("wait");
-            ct.wait_for_cancellation().await;
+            ct.wait().await;
             logs.push("wake");
         })
     });
@@ -60,7 +60,7 @@ async fn wait_for_canceled_already_canceled() {
     let cts = CancellationTokenSource::new();
     let ct = cts.token();
     cts.cancel();
-    ct.wait_for_cancellation().await;
+    ct.wait().await;
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn with() {
                 cts.cancel();
             });
             let r = ct
-                .with(async {
+                .run(async {
                     logs.push("1");
                     wait_for_idle().await;
                     logs.push("2");
@@ -97,7 +97,7 @@ fn with_already_canceled() {
     let cts = CancellationTokenSource::new();
     let ct = cts.token();
     cts.cancel();
-    let r = ct.with(pending::<()>()).await;
+    let r = ct.run(pending::<()>()).await;
     assert_eq!(r, Err(Canceled));
 }
 

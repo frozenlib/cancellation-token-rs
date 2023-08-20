@@ -287,6 +287,7 @@ pub trait OnCanceled: Sync + Send {
 }
 
 /// Callback called when canceled.
+#[non_exhaustive]
 pub enum CancellationTokenCallback {
     FnOnce(Box<dyn FnOnce() + Sync + Send>),
     Waker(Waker),

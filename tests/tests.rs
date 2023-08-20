@@ -9,7 +9,7 @@ use cancellation_token::{
     Canceled, CancellationToken, CancellationTokenCallback, CancellationTokenSource,
 };
 use rt_local::{
-    runtime::core::{run, test as async_test},
+    runtime::core::{run, test},
     wait_for_idle,
 };
 
@@ -57,7 +57,7 @@ fn wait_for_canceled() {
     logs.verify(&["wait", "cancel", "wake"]);
 }
 
-#[async_test]
+#[test]
 async fn wait_for_canceled_already_canceled() {
     let cts = CancellationTokenSource::new();
     let ct = cts.token();
@@ -94,8 +94,8 @@ fn with() {
     logs.verify(&["1", "2", "cancel", "finish"]);
 }
 
-#[async_test]
-fn with_already_canceled() {
+#[test]
+async fn with_already_canceled() {
     let cts = CancellationTokenSource::new();
     let ct = cts.token();
     cts.cancel();

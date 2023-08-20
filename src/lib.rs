@@ -195,6 +195,7 @@ impl CancellationToken {
     /// }
     /// fn heavy_work() { }
     /// ```
+    #[doc(alias = "ThrowIfCancellationRequested")]
     pub fn canceled(&self) -> MayBeCanceled {
         if self.is_canceled() {
             Err(Canceled)

@@ -12,14 +12,22 @@ use rt_local::{
 };
 
 #[test]
-fn cancel_and_is_canceled() {
+fn source_new() {
     let cts = CancellationTokenSource::new();
     let ct = cts.token();
 
     assert!(!cts.is_canceled());
     assert!(!ct.is_canceled());
+    assert!(ct.can_be_canceled());
+}
+
+#[test]
+fn cancel_and_is_canceled() {
+    let cts = CancellationTokenSource::new();
+    let ct = cts.token();
 
     cts.cancel();
+    assert!(ct.can_be_canceled());
     assert!(cts.is_canceled());
     assert!(ct.is_canceled());
 }
@@ -56,7 +64,16 @@ fn token_new() {
 }
 
 #[test]
-fn wait_for_canceled() {
+fn canceled() {
+    let cts = CancellationTokenSource::new();
+    let ct = cts.token();
+    assert!(ct.canceled().is_ok());
+    cts.cancel();
+    assert!(ct.canceled().is_err());
+}
+
+#[test]
+fn wait() {
     let logs = Logs::new();
     let cts = CancellationTokenSource::new();
     scope(|s| {

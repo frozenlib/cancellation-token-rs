@@ -305,6 +305,11 @@ impl CancellationTokenCallback {
     }
 }
 
+struct RawRegistration {
+    source: Arc<RawTokenSource>,
+    key: usize,
+}
+
 /// An object to unregister callback.
 ///
 /// Callbacks are automatically unregistered when dropped.
@@ -315,6 +320,11 @@ impl CancellationTokenRegistration {
     fn empty() -> Self {
         Self(None)
     }
+
+    /// Ensure the callback is never unregistered.
+    pub fn detach(mut self) {
+        self.0.take();
+    }
 }
 impl fmt::Debug for CancellationTokenRegistration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -323,15 +333,12 @@ impl fmt::Debug for CancellationTokenRegistration {
             .finish()
     }
 }
-
-struct RawRegistration {
-    source: Arc<RawTokenSource>,
-    key: usize,
-}
-impl Drop for RawRegistration {
+impl Drop for CancellationTokenRegistration {
     fn drop(&mut self) {
-        if let Some(data) = &mut *self.source.0.lock().unwrap() {
-            data.cbs.remove(self.key);
+        if let Some(raw) = self.0.take() {
+            if let Some(data) = &mut *raw.source.0.lock().unwrap() {
+                data.cbs.remove(raw.key);
+            }
         }
     }
 }

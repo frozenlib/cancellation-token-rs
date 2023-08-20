@@ -205,6 +205,22 @@ fn register_unregister() {
     logs.verify(&[]);
 }
 
+#[test]
+fn register_detach() {
+    let logs = Logs::new();
+    let cts = CancellationTokenSource::new();
+    let ct = cts.token();
+    ct.register({
+        let logs = logs.clone();
+        CancellationTokenCallback::FnOnce(Box::new(move || {
+            logs.push("cancel");
+        }))
+    })
+    .detach();
+    cts.cancel();
+    logs.verify(&["cancel"]);
+}
+
 #[derive(Clone)]
 struct Logs(Arc<Mutex<Vec<&'static str>>>);
 

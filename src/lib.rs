@@ -301,7 +301,7 @@ impl CancellationTokenCallback {
     }
 }
 
-/// Object to unregister callbacks.
+/// An object to unregister callback.
 ///
 /// Callbacks are automatically unregistered when dropped.
 #[derive(Default)]

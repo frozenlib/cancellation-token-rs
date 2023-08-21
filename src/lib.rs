@@ -234,7 +234,7 @@ impl CancellationToken {
         }
     }
 
-    /// Runs the specified future. However, if this token is canceled, it will stop the running of that future and return `Err(Cancelled)`.
+    /// Runs the specified future. However, if this token is canceled, it will stop the running of that future and return `Err(Canceled)`.
     ///
     /// # Example
     ///
@@ -280,7 +280,7 @@ impl fmt::Debug for CancellationToken {
 
 /// Callback called when canceled.
 pub trait OnCanceled: Sync + Send {
-    /// Called when cancelled.
+    /// Called when canceled.
     ///
     /// This method are called synchronously when [`CancellationTokenSource::cancel()`] is called, so care must be taken to avoid deadlocks.
     fn on_canceled(&self);

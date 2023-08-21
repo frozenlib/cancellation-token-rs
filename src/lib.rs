@@ -176,6 +176,8 @@ impl CancellationToken {
 
     /// Returns `Err(Canceled)` if canceled, otherwise returns `Ok(())`.
     ///
+    /// This method corresponds to `ThrowIfCancellationRequested` in C#.
+    ///
     /// # Example
     ///
     /// ```

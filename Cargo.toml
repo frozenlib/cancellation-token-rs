@@ -18,3 +18,4 @@ slabmap = "0.2.0"
 
 [dev-dependencies]
 rt-local = "0.1.4"
+anyhow = "1.0.79"

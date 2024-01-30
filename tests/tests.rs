@@ -256,6 +256,13 @@ fn register_detach() {
     logs.verify(&["cancel"]);
 }
 
+#[test]
+fn anyhow_compatibility() {
+    fn _f(e: Canceled) -> anyhow::Error {
+        e.into()
+    }
+}
+
 #[derive(Clone)]
 struct Logs(Arc<Mutex<Vec<&'static str>>>);
 

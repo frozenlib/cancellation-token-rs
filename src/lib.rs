@@ -1,5 +1,5 @@
 use std::{
-    fmt,
+    error, fmt,
     future::{pending, Future},
     pin::{pin, Pin},
     sync::{Arc, Mutex, Weak},
@@ -434,6 +434,14 @@ pub type MayBeCanceled<T = ()> = Result<T, Canceled>;
 /// A value indicating that it has been canceled.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Canceled;
+
+impl fmt::Display for Canceled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        "operation has been cancelled".fmt(f)
+    }
+}
+
+impl error::Error for Canceled {}
 
 /// An object for which a cancellation notification is sent when dropped.
 ///

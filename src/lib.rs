@@ -435,12 +435,14 @@ pub type MayBeCanceled<T = ()> = Result<T, Canceled>;
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Canceled;
 
+#[cfg(feature = "anyhow")]
 impl fmt::Display for Canceled {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         "operation has been cancelled".fmt(f)
     }
 }
 
+#[cfg(feature = "anyhow")]
 impl error::Error for Canceled {}
 
 /// An object for which a cancellation notification is sent when dropped.

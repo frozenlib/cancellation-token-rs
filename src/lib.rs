@@ -1,10 +1,13 @@
 use std::{
-    error, fmt,
+    fmt,
     future::{pending, Future},
     pin::{pin, Pin},
     sync::{Arc, Mutex, Weak},
     task::{Context, Poll, Waker},
 };
+
+#[cfg(feature = "anyhow")]
+use std::error;
 
 use slabmap::SlabMap;
 

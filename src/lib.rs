@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     error, fmt,
     future::{pending, Future},
     pin::{pin, Pin},
@@ -9,10 +10,13 @@ use std::{
 use slabmap::SlabMap;
 
 #[cfg(doctest)]
-pub mod tests {
+pub mod tests_readme {
     #[doc = include_str!("../README.md")]
     pub mod readme {}
 }
+
+#[cfg(test)]
+mod tests;
 
 struct RawTokenSource(Mutex<Option<Data>>);
 
@@ -23,13 +27,11 @@ impl RawTokenSource {
     fn is_canceled(&self) -> bool {
         self.0.lock().unwrap().is_none()
     }
-}
-impl OnCanceled for RawTokenSource {
-    fn on_canceled(&self) {
+    fn cancel(&self) {
         let Some(data) = self.0.lock().unwrap().take() else {
             return;
         };
-        data.cbs.into_iter().for_each(|(_, cb)| cb.on_canceled());
+        data.cbs.into_iter().for_each(|(_, cb)| cb.call());
     }
 }
 
@@ -73,10 +75,12 @@ impl CancellationTokenSource {
             RawToken::IsCanceled(false) => Self::new(),
             RawToken::Source(source) => {
                 if let Some(data) = &mut *source.0.lock().unwrap() {
-                    Self(Some(Arc::new_cyclic(|child: &Weak<RawTokenSource>| {
+                    Self(Some(Arc::new_cyclic(|child| {
                         RawTokenSource::new(CancellationTokenRegistration(Some(RawRegistration {
                             source: source.clone(),
-                            key: data.cbs.insert(CancelCallback::Weak(child.clone())),
+                            key: data
+                                .cbs
+                                .insert(CancelCallback::from_raw_token_source(child)),
                         })))
                     })))
                 } else {
@@ -89,7 +93,7 @@ impl CancellationTokenSource {
     /// Send cancellation notification.
     pub fn cancel(&self) {
         if let Some(source) = &self.0 {
-            source.on_canceled();
+            source.cancel();
         }
     }
 
@@ -222,7 +226,7 @@ impl CancellationToken {
             }
         };
         if is_canceled {
-            cb.on_canceled();
+            cb.call();
         }
         CancellationTokenRegistration::empty()
     }
@@ -280,35 +284,100 @@ impl fmt::Debug for CancellationToken {
     }
 }
 
-/// Callback called when canceled.
-pub trait OnCanceled: Sync + Send {
-    /// Called when canceled.
+/// Callback function passed to [`CancellationToken::register()`].
+///
+/// You can create `CancelCallback` using the following methods.
+///
+/// - [`new`](Self::new)
+/// - [`from_arc_fn`](Self::from_arc_fn)
+/// - [`from_weak_fn`](Self::from_weak_fn)
+/// - [`From::from`] or [`Into::into`] (convert from [`Waker`], `&Waker`, or [`Box<impl FnOnce()>`](FnOnce))
+///
+/// The callback function are called synchronously when [`CancellationTokenSource::cancel()`] is called,
+/// so care must be taken to avoid deadlocks.
+pub struct CancelCallback(RawCancelCallback);
+
+impl CancelCallback {
+    /// Create a new callback from a function.
+    pub fn new(f: impl FnOnce() + Sync + Send + 'static) -> Self {
+        Self(RawCancelCallback::Fn(Box::new(f)))
+    }
+
+    /// Create a new callback from an `Arc` and a function.
     ///
-    /// This method are called synchronously when [`CancellationTokenSource::cancel()`] is called, so care must be taken to avoid deadlocks.
-    fn on_canceled(&self);
+    /// If `f` is a ZST (Zero-Sized Type), this method does not allocate memory.
+    pub fn from_arc_fn<T: Send + Sync + 'static>(
+        this: Arc<T>,
+        f: impl FnOnce(Arc<T>) + Sync + Send + Copy + 'static,
+    ) -> Self {
+        Self(RawCancelCallback::Arc {
+            this,
+            f: Box::new(move |this| f(this.downcast().unwrap())),
+        })
+    }
+    /// Create a new callback from an `Weak` and a function.
+    ///
+    /// Calls the function only if the specified weak reference is alive when cancelled.
+    ///
+    /// If `f` is a ZST (Zero-Sized Type), this method does not allocate memory.
+    pub fn from_weak_fn<T: Send + Sync + 'static>(
+        this: Weak<T>,
+        f: impl FnOnce(Arc<T>) + Sync + Send + Copy + 'static,
+    ) -> Self {
+        Self(RawCancelCallback::Weak {
+            this,
+            f: Box::new(move |this| f(this.downcast().unwrap())),
+        })
+    }
+    fn from_raw_token_source(source: &Weak<RawTokenSource>) -> Self {
+        Self::from_weak_fn(source.clone(), |source| source.cancel())
+    }
+    fn call(self) {
+        self.0.call();
+    }
+}
+impl From<Box<dyn FnOnce() + Sync + Send>> for CancelCallback {
+    fn from(value: Box<dyn FnOnce() + Sync + Send>) -> Self {
+        Self(RawCancelCallback::Fn(value))
+    }
+}
+impl<F: FnOnce() + Sync + Send + 'static> From<Box<F>> for CancelCallback {
+    fn from(value: Box<F>) -> Self {
+        Self(RawCancelCallback::Fn(value))
+    }
+}
+impl From<Waker> for CancelCallback {
+    fn from(value: Waker) -> Self {
+        Self(RawCancelCallback::Waker(value))
+    }
+}
+impl From<&Waker> for CancelCallback {
+    fn from(value: &Waker) -> Self {
+        Self(RawCancelCallback::Waker(value.clone()))
+    }
 }
 
-/// Callback called when canceled.
-///
-/// Used in [`CancellationToken::register()`].
-#[non_exhaustive]
-pub enum CancelCallback {
-    FnOnce(Box<dyn FnOnce() + Sync + Send>),
+enum RawCancelCallback {
+    Fn(Box<dyn FnOnce() + Sync + Send>),
     Waker(Waker),
-    Box(Box<dyn OnCanceled>),
-    Arc(Arc<dyn OnCanceled>),
-    Weak(Weak<dyn OnCanceled>),
+    Arc {
+        this: Arc<dyn Any + Sync + Send>,
+        f: Box<dyn FnOnce(Arc<dyn Any + Send + Sync>) + Sync + Send>,
+    },
+    Weak {
+        this: Weak<dyn Any + Sync + Send>,
+        f: Box<dyn FnOnce(Arc<dyn Any + Send + Sync>) + Sync + Send>,
+    },
 }
-impl CancelCallback {
-    fn on_canceled(self) {
+impl RawCancelCallback {
+    fn call(self) {
         match self {
-            Self::FnOnce(f) => f(),
-            Self::Waker(w) => w.wake(),
-            Self::Box(b) => b.on_canceled(),
-            Self::Arc(a) => a.on_canceled(),
-            Self::Weak(w) => {
-                if let Some(w) = w.upgrade() {
-                    w.on_canceled();
+            Self::Fn(f) => f(),
+            Self::Waker(waker) => waker.wake(),
+            Self::Arc { this, f } => f(this),
+            Self::Weak { this, f } => {
+                if let Some(this) = this.upgrade() {
+                    f(this);
                 }
             }
         }
@@ -366,7 +435,7 @@ impl<'a> WakerRegistration<'a> {
     }
     pub fn set(&mut self, waker: &Waker) -> bool {
         if let Some(data) = &mut *self.source.0.lock().unwrap() {
-            let cb = CancelCallback::Waker(waker.clone());
+            let cb = CancelCallback::from(waker);
             if let Some(key) = self.key {
                 data.cbs[key] = cb;
             } else {

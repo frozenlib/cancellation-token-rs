@@ -217,9 +217,7 @@ fn register() {
     let ct = cts.token();
     let _r = ct.register({
         let logs = logs.clone();
-        CancelCallback::FnOnce(Box::new(move || {
-            logs.push("cancel");
-        }))
+        CancelCallback::new(move || logs.push("cancel"))
     });
     cts.cancel();
     logs.verify(&["cancel"]);
@@ -232,9 +230,7 @@ fn register_unregister() {
     let ct = cts.token();
     let _ = ct.register({
         let logs = logs.clone();
-        CancelCallback::FnOnce(Box::new(move || {
-            logs.push("cancel");
-        }))
+        CancelCallback::new(move || logs.push("cancel"))
     });
     cts.cancel();
     logs.verify(&[]);
@@ -247,9 +243,7 @@ fn register_detach() {
     let ct = cts.token();
     ct.register({
         let logs = logs.clone();
-        CancelCallback::FnOnce(Box::new(move || {
-            logs.push("cancel");
-        }))
+        CancelCallback::new(move || logs.push("cancel"))
     })
     .detach();
     cts.cancel();

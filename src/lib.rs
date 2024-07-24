@@ -10,7 +10,7 @@ use std::{
 use slabmap::SlabMap;
 
 #[cfg(doctest)]
-pub mod tests_readme {
+mod tests_readme {
     #[doc = include_str!("../README.md")]
     pub mod readme {}
 }

@@ -33,10 +33,10 @@ fn main() {
     });
 }
 ```
- 
+
 ## License
 
-This project is dual licensed under Apache-2.0/MIT. See the two LICENSE-* files for details.
+This project is dual licensed under Apache-2.0/MIT. See the two LICENSE-\* files for details.
 
 ## Contribution
 

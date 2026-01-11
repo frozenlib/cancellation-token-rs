@@ -1,8 +1,8 @@
 use std::{
     any::Any,
     error, fmt,
-    future::{pending, Future},
-    pin::{pin, Pin},
+    future::{Future, pending},
+    pin::{Pin, pin},
     sync::{Arc, Mutex, Weak},
     task::{Context, Poll, Waker},
 };
@@ -414,10 +414,10 @@ impl fmt::Debug for CancellationTokenRegistration {
 }
 impl Drop for CancellationTokenRegistration {
     fn drop(&mut self) {
-        if let Some(raw) = self.0.take() {
-            if let Some(data) = &mut *raw.source.0.lock().unwrap() {
-                data.cbs.remove(raw.key);
-            }
+        if let Some(raw) = self.0.take()
+            && let Some(data) = &mut *raw.source.0.lock().unwrap()
+        {
+            data.cbs.remove(raw.key);
         }
     }
 }
@@ -450,10 +450,10 @@ impl<'a> WakerRegistration<'a> {
 
 impl Drop for WakerRegistration<'_> {
     fn drop(&mut self) {
-        if let Some(key) = self.key.take() {
-            if let Some(data) = &mut *self.source.0.lock().unwrap() {
-                data.cbs.remove(key);
-            }
+        if let Some(key) = self.key.take()
+            && let Some(data) = &mut *self.source.0.lock().unwrap()
+        {
+            data.cbs.remove(key);
         }
     }
 }
